@@ -20,6 +20,8 @@ $ make init
 
 ## Validating the data
 
+### CSV-W and Manual Foreign Key Constraints
+
 ```bash
 $ make validate
 =============================== Pulling latest required docker images. ===============================
@@ -34,6 +36,45 @@ Valid CSV-W
 
 It will (hopefully) tell you if you get something wrong, for instance referencing an EOV which isn't defined.
 
+### The SHACL Report
+
+There are some forms of invalid data which can only be detected when looking at the data in its entirety. For instance we check to ensure that an MBO Identifier hasn't been (accidentally) reused in different CSV files; further, we want to generate a report of entities which have been defined but don't seem to be referenced anywhere else in the dataset. These constraints are applied via SHACL constraints (see [remote/shacl.ttl](./remote/shacl.ttl)). Violations cause the build to fail, warnings do not cause the build to fail.
+
+```bash
+$ make shacl-report
+
+The SHACL Report:
+
+First looking for any violations:
+
++----------+
+| Conforms |
++----------+
+|   True   |
++----------+
+
+
+Now looking for any warnings or info:
+
++----------+
+| Conforms |
++----------+
+|  False   |
++----------+
+
++-----+----------+---------------------------+-------------+---------------------------+---------------------------+---------------------------+---------------------------+
+| No. | Severity | Focus Node                | Result Path | Message                   | Component                 | Shape                     | Value                     |
++-----+----------+---------------------------+-------------+---------------------------+---------------------------+---------------------------+---------------------------+
+| 1   | Warning  | https://w3id.org/marco-bo | -           | All entities should be re | SPARQLConstraintComponent | http://w3id.org/marco-bol | MBO Identifier 'mbo_todo_ |
+|     |          | lo/mbo_todo_license_4     |             | ferenced somewhere else;  |                           | o/ShaclConstraints/Entit  | license_4' in License.csv |
+|     |          |                           |             | this is a warning, it is  |                           | iesShouldBeReferenced     |  doesn't appear to be ref |
+|     |          |                           |             | not enforced.             |                           |                           | erenced anywhere else.    |
+|     |          |                           |             |                           |                           |                           |                           |
+....
+
+```
+
+Pay attention to the `Focus Node` field which tells you which entity is the problem, as well as the `Message` and `Value` columns which tell you what the problem is.
 ## Generating schema.org JSON-LD representation
 
 ```bash
@@ -46,7 +87,7 @@ $ make
 If you want speedy outputs, have multiple cores at your disposal, and don't mind incoherently timed log outputs then consider running make with a degree of parallelism (`p`): 
 
 ```bash
-$ p=4 && make -j "$p" init && make -j "$p" validate jsonld
+$ p=4 && make -j "$p" init && make -j "$p" validate shacl-report jsonld
 ```
 
 Files are output in the `out` directory.

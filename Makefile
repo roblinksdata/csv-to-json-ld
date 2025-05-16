@@ -1,25 +1,27 @@
 
-.PHONY: dockersetup output-directories jsonld clean bulk-ttl bulk-jsonld all init remove-orphaned
+.PHONY: dockersetup output-directories jsonld clean bulk-ttl bulk-jsonld all init remove-orphaned shacl-report
 
 WORKING_DIR			:= $(shell pwd)
-USER				:= $(echo "$$USER")
+UID					:= $(shell id -u)
+GID					:= $(shell id -g)
 
 CSVW_CHECK_DOCKER	:= roblinksdata/csvw-check:latest
 CSV2RDF_DOCKER		:= europe-west2-docker.pkg.dev/swirrl-devops-infrastructure-1/public/csv2rdf:v0.7.1
 JENA_CLI_DOCKER		:= gsscogs/gss-jvm-build-tools:latest
 MBO_TOOLS_DOCKER	:= ghcr.io/marco-bolo/csv-to-json-ld-tools:latest
 
-CSVW_CHECK						:= docker run --rm -v "$(WORKING_DIR)":/work -w /work $(CSVW_CHECK_DOCKER) -s
-CSV2RDF							:= docker run --rm -v "$(WORKING_DIR)":/work -w /work $(CSV2RDF_DOCKER) csv2rdf -m minimal -u 
-RIOT							:= docker run --rm -v "$(WORKING_DIR)":/work -w /work $(JENA_CLI_DOCKER) riot
-SPARQL							:= docker run --rm -v "$(WORKING_DIR)":/work -w /work $(JENA_CLI_DOCKER) sparql
+CSVW_CHECK						:= docker run --rm -v "$(WORKING_DIR)":/work -u $(UID):$(GID) -w /work $(CSVW_CHECK_DOCKER) -s
+CSV2RDF							:= docker run --rm -v "$(WORKING_DIR)":/work -u $(UID):$(GID) -w /work $(CSV2RDF_DOCKER) csv2rdf -m minimal -u 
+RIOT							:= docker run --rm -v "$(WORKING_DIR)":/work -u $(UID):$(GID) -w /work $(JENA_CLI_DOCKER) riot
+SPARQL							:= docker run --rm -v "$(WORKING_DIR)":/work -u $(UID):$(GID) -w /work $(JENA_CLI_DOCKER) sparql
 
-MBO_TOOLS_DOCKER_RUN			:= docker run -i --rm -v "$(WORKING_DIR)":/work -u "$(USER)":"$(USER)" -w /work "$(MBO_TOOLS_DOCKER)"
+MBO_TOOLS_DOCKER_RUN			:= docker run -i --rm -v "$(WORKING_DIR)":/work -u $(UID):$(GID) -w /work "$(MBO_TOOLS_DOCKER)"
 CONVERT_LIST_VALUES_TO_NODES	:= $(MBO_TOOLS_DOCKER_RUN) listcolumnsasnodes
 LIST_COLUMN_FOREIGN_KEY_CHECK	:= $(MBO_TOOLS_DOCKER_RUN) listcolumnforeignkeycheck
 UNION_UNIQUE_IDENTIFIERS		:= $(MBO_TOOLS_DOCKER_RUN) unionuniqueidentifiers
 JQ								:= $(MBO_TOOLS_DOCKER_RUN) jq
 JSONLD_CLI						:= $(MBO_TOOLS_DOCKER_RUN) jsonld
+SHACL_CLI						:= $(MBO_TOOLS_DOCKER_RUN) pyshacl 
 
 CSVW_METADATA_FILES 			:= $(wildcard remote/*.csv-metadata.json)
 CSVW_METADATA_VALIDATION_FILES	:= $(CSVW_METADATA_FILES:remote/%.csv-metadata.json=out/validation/%.success.log)
@@ -57,6 +59,25 @@ out/bulk/%.json: out/bulk/%.ttl
 	@echo "=============================== Converting $< to JSON-LD $@ ===============================" ;
 	@$(RIOT) --syntax ttl --out json-ld "$<" > "$@";
 	@echo "";
+
+out/bulk/All.trig: $(BULK_TTL_FILES)
+	@$(SPARQL) --quiet $(^:out/bulk/%.ttl=--namedGraph out/bulk/%.ttl) "CONSTRUCT { GRAPH ?g { ?s ?p ?o. } } WHERE { GRAPH ?g { ?s ?p ?o. } }" > out/bulk/All.trig
+
+shacl-report: out/bulk/All.trig
+	@echo "The SHACL Report:"
+	@echo ""
+	@echo "First looking for any violations:"
+	@echo ""
+	
+	@# This will cause the build process to fail if there are any violations.
+	@$(SHACL_CLI) --format table --shapes remote/shacl.ttl --allow-info --allow-warning out/bulk/All.trig
+
+	@echo ""
+	@echo "Now looking for any warnings or info:"
+	@echo ""
+
+	@# We don't want the build process to fail because of warnings/infos.
+	@$(SHACL_CLI) --format table --shapes remote/shacl.ttl out/bulk/All.trig || true
 
 bulk-ttl: $(BULK_TTL_FILES) remove-orphaned
 
