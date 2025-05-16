@@ -89,7 +89,7 @@ init:
 	@$(MAKE) -f remote/split.mk init
 
 all:
-	@$(MAKE) init validate jsonld
+	@$(MAKE) init validate shacl-report jsonld
 
 define DELETE_UNEXPECTED_BULK_FILES
 ifeq ($$(filter $$(file),$(EXPECTED_BULK_OUT_FILES)),) 
